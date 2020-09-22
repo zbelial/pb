@@ -116,14 +116,10 @@
       (with-current-buffer main
         (setq mainp nil)
         (setq followerp nil)
-        (setq main-buffer-name nil)
-        (setq follower-buffer-name nil)
         )
       (with-current-buffer follower
         (setq mainp nil)
-        (setq followerp nil)
-        (setq main-buffer-name nil)
-        (setq follower-buffer-name nil)))))
+        (setq followerp nil)))))
 
 (defun pb-paired-buffer? (&optional buffer)
   ""
