@@ -105,7 +105,7 @@
     )
   )
 
-(defun pb-unpair-buffer (&optional buffer)
+(defun pb-unpair-buffers (&optional buffer)
   ""
   (interactive)
   (let ((buffer (or buffer (buffer-name)))
