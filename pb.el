@@ -144,7 +144,6 @@
 (defun pb-sync-window (_)
   ""
   (let* (
-        ;; (buffer (nth 0 (buffer-list)))
         (buffer (current-buffer))
         (window (get-buffer-window buffer))
         main-buffer follower-buffer w2 layout)
@@ -154,10 +153,10 @@
       (setq layout window-layout)
       (setq ratio follower-buffer-ratio)
 
-      ;; (delete-other-windows)
       (dolist (w (window-list))
         (when (not (or (string-equal (buffer-name (window-buffer w)) "*Help*")
                        (minibufferp (window-buffer w))
+                       (window-dedicated-p w)
                        (eq w window)))
           (delete-window w)))
       
@@ -169,9 +168,7 @@
       (set-window-buffer w2 follower-buffer)
       (if (eq (window-buffer window) buffer)
           (select-window window)
-        (select-window w2)
-        )
-      )
+        (select-window w2)))
 
     (when (and t
                (not (pb-paired-buffer? buffer))
@@ -187,18 +184,13 @@
           (when main-window
             (delete-window main-window))
           (when follower-window
-            (delete-window follower-window))))
-      )
-    ))
+            (delete-window follower-window)))))))
 
 (add-hook 'window-buffer-change-functions #'pb-sync-window)
 ;; (remove-hook 'window-buffer-change-functions #'pb-sync-window)
 
 (add-hook 'kill-buffer-hook #'pb-unpair-buffer)
 ;; (remove-hook 'kill-buffer-hook #'pb-unpair-buffer)
-
-;; (add-hook 'buffer-list-update-hook #'pb-sync-window)
-;; (remove-hook 'buffer-list-update-hook #'pb-sync-window)
 
 (provide 'pb)
 
