@@ -189,8 +189,8 @@
 (add-hook 'window-buffer-change-functions #'pb-sync-window)
 ;; (remove-hook 'window-buffer-change-functions #'pb-sync-window)
 
-(add-hook 'kill-buffer-hook #'pb-unpair-buffer)
-;; (remove-hook 'kill-buffer-hook #'pb-unpair-buffer)
+(add-hook 'kill-buffer-hook #'pb-unpair-buffers)
+;; (remove-hook 'kill-buffer-hook #'pb-unpair-buffers)
 
 (provide 'pb)
 
