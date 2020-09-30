@@ -121,6 +121,27 @@
         (setq mainp nil)
         (setq followerp nil)))))
 
+(defun pb-change-ratio (&optional buffer)
+  (interactive)
+  (let ((buffer (or buffer (buffer-name)))
+        main follower ratio)
+    (when (pb-paired-buffer? buffer)
+      (setq ratio (read-string "New ratio of follower buffer: " (number-to-string (pb-follower-ratio))))
+      (setq ratio (string-to-number ratio))
+      (when (or (< ratio 0.0) (>= ratio 1.0))
+        (setq ratio 0.5))
+
+      (setq main (pb-main-buffer buffer))
+      (setq follower (pb-follower-buffer buffer))
+      (with-current-buffer main
+        (setq follower-buffer-ratio ratio)
+        )
+      (with-current-buffer follower
+        (setq follower-buffer-ratio ratio))
+
+      (pb-sync-window)
+      )))
+
 (defun pb-paired-buffer? (&optional buffer)
   ""
   (let ((buffer (or buffer (buffer-name))))
@@ -141,7 +162,13 @@
         (buffer-name)
       follower-buffer-name)))
 
-(defun pb-sync-window (_)
+(defun pb-follower-ratio (&optional buffer)
+  ""
+  (when (pb-paired-buffer? buffer)
+    follower-buffer-ratio
+    ))
+
+(defun pb-sync-window (&optional arg)
   ""
   (let* (
         (buffer (current-buffer))
