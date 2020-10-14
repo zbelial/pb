@@ -35,6 +35,12 @@
 ;; the Free Software Foundation, Inc., 51 Franklin Street, Fifth
 ;; Floor, Boston, MA 02110-1301, USA.
 
+;;; Custom
+(defcustom pb-sync-when-single-main t
+  "When non-nil, show follower and main buffer at the same time when switching to follower."
+  :group 'pb
+  :type 'boolean)
+
 ;;; Variable and helpers
 
 (defvar-local mainp nil
@@ -64,8 +70,8 @@
   "Pair two buffers together."
   (interactive)
   (let* ((window (get-buffer-window (current-buffer)))
-         (main (read-buffer "Main buffer: "))
-         (follower (read-buffer "Follower buffer: " nil nil #'(lambda (buffer) (not (equal buffer main)))))
+         (main (read-buffer "Select a buffer as the Main: "))
+         (follower (read-buffer "Select a buffer as the Follower: "))
          w2 layout ratio wsize)
 
     (when (or (pb--main-buffer? main) (pb--main-buffer? follower))
@@ -81,7 +87,7 @@
 
     (setq ratio (read-string "Ratio of follower buffer: " "0.5"))
     (setq ratio (string-to-number ratio))
-    (when (or (< ratio 0.0) (>= ratio 1.0))
+    (when (or (<= ratio 0.2) (>= ratio 0.8))
       (setq ratio 0.5))
 
     (when (or (equal main (buffer-name)) (equal follower (buffer-name)))
@@ -99,25 +105,59 @@
       (setq main-buffer-name main)
       (setq follower-buffer-name follower)
       (setq window-layout layout)
-      (setq follower-buffer-ratio ratio)
-      )
+      (setq follower-buffer-ratio ratio))
 
     (with-current-buffer follower
       (setq mainp nil)
       (setq followerp t)
-      (add-to-list 'main-buffers main)
-      (setq main-buffer-name main)
-      (setq follower-buffer-name follower)
-      (setq window-layout layout)
-      (setq follower-buffer-ratio ratio)
-      )
-    )
-  )
+      (add-to-list 'main-buffers main))))
 
 (defun pb-unpair-buffers (&optional buffer)
   ""
   (interactive)
   ;; (message "pb-unpair-buffers %S" buffer)
+  (let ((buffer (or buffer (buffer-name)))
+        main follower mains)
+    (setq pb--sync-window-enabled nil)
+    (ignore-errors
+      (when (pb--main-buffer? buffer)
+        (setq main buffer)
+        (setq follower (pb--follower-buffer buffer))
+        (with-current-buffer main
+          (setq mainp nil)
+          (setq followerp nil)
+          )
+        (with-current-buffer follower
+          (setq mainp nil)
+          (setq main-buffers (delete main main-buffers))
+          (when (= (length main-buffers) 0)
+            (setq followerp nil))
+          )
+        (delete-other-windows))
+
+      (when (pb--follower-buffer? buffer)
+        (let ((mains (pb--main-buffers buffer)))
+          (if (= (length mains) 1)
+              (progn
+                (setq main (nth 0 mains))
+                (setq follower buffer))
+            (setq main (completing-read "Select main buffer to unpair:" mains))
+            (setq follower buffer))
+
+          (with-current-buffer main
+            (setq mainp nil)
+            (setq followerp nil))
+          (with-current-buffer follower
+            (setq mainp nil)
+            (setq main-buffers (delete main main-buffers))
+            (when (= (length main-buffers) 0)
+              (setq followerp nil))))
+        (delete-other-windows))))
+  (setq pb--sync-window-enabled t))
+
+(defun pb--kill-buffer-hook (&optional buffer)
+  ""
+  ;; (message "pb--kill-buffer-hook %S" buffer)
   (let ((buffer (or buffer (buffer-name)))
         main follower mains)
     (setq pb--sync-window-enabled nil)
@@ -151,7 +191,7 @@
         (progn
           (setq ratio (read-string "New ratio of follower buffer: " (number-to-string (pb--follower-ratio buffer))))
           (setq ratio (string-to-number ratio))
-          (when (or (< ratio 0.0) (>= ratio 1.0))
+          (when (or (<= ratio 0.2) (>= ratio 0.8))
             (setq ratio 0.5))
 
           (with-current-buffer buffer
@@ -174,10 +214,10 @@
   (with-current-buffer buffer
     followerp))
 
-(defun pb--main-buffer (buffer)
+(defun pb--main-buffers (buffer)
   "`buffer' must be a follower buffer."
   (with-current-buffer buffer
-    (nth 0 main-buffers)))
+    main-buffers))
 
 (defun pb--follower-buffer (buffer)
   "`buffer' must be a main buffer."
@@ -215,32 +255,53 @@
 
         (set-window-buffer window main-buffer)
         (set-window-buffer w2 follower-buffer)
-        (if (eq (window-buffer window) buffer)
-            (select-window window)
-          (select-window w2)))
+        (select-window window))
 
-      ;; (when (and t
-      ;;            (not (pb--paired-buffer? buffer))
-      ;;            )
-      ;;   (let (main-window follower-window)
-      ;;     (dolist (w (window-list))
-      ;;       (with-current-buffer (window-buffer w)
-      ;;         (when mainp
-      ;;           (setq main-window w))
-      ;;         (when followerp
-      ;;           (setq follower-window w))))
-      ;;     (when (not (and main-window follower-window))
-      ;;       (when main-window
-      ;;         (delete-window main-window))
-      ;;       (when follower-window
-      ;;         (delete-window follower-window)))))
-      )))
+      (when (and t
+                 pb-sync-when-single-main
+                 (pb--follower-buffer? buffer)
+                 (= (length (pb--main-buffers buffer)) 1))
+        (setq main-buffer (nth 0 (pb--main-buffers buffer)))
+        (setq follower-buffer buffer)
+        (with-current-buffer buffer
+          (setq layout window-layout)
+          (setq ratio follower-buffer-ratio))
+
+        (dolist (w (window-list))
+          (when (not (or (string-equal (buffer-name (window-buffer w)) "*Help*")
+                         (minibufferp (window-buffer w))
+                         (window-dedicated-p w)
+                         (eq w window)))
+            (delete-window w)))
+        
+        (if (string-equal layout "v")
+            (setq w2 (split-window window (* (- 1 ratio) (window-body-height window t)) 'below t))
+          (setq w2 (split-window window (* (- 1 ratio) (window-body-width window t)) 'right t)))
+
+        (set-window-buffer window main-buffer)
+        (set-window-buffer w2 follower-buffer)
+        (select-window w2))
+      
+      (when (and t
+                 (not (pb--paired-buffer? buffer))
+                 (not (minibufferp buffer))
+                 )
+        (let ((cw (get-buffer-window buffer))
+              main-window follower-window paired-wins)
+          (dolist (w (window-list arg 'no-mini))
+            (with-current-buffer (window-buffer w)
+              (when mainp
+                (add-to-list 'paired-wins w))
+              (when followerp
+                (add-to-list 'paired-wins w))))
+          (dolist (w paired-wins)
+            (delete-window w)))))))
 
 (add-hook 'window-buffer-change-functions #'pb--sync-window)
 ;; (remove-hook 'window-buffer-change-functions #'pb--sync-window)
 
-(add-hook 'kill-buffer-hook #'pb-unpair-buffers)
-;; (remove-hook 'kill-buffer-hook #'pb-unpair-buffers)
+(add-hook 'kill-buffer-hook #'pb--kill-buffer-hook)
+;; (remove-hook 'kill-buffer-hook #'pb--kill-buffer-hook)
 
 (defun pb-mode-line()
   (let ((line ""))
