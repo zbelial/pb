@@ -131,7 +131,10 @@
           )
         (with-current-buffer follower
           (setq mainp nil)
-          (setq followerp nil)))
+          (setq main-buffers (delete main main-buffers))
+          (when (= (length main-buffers) 0)
+            (setq followerp nil))
+          ))
       (when (pb--follower-buffer? buffer)
         (dolist (b (buffer-list))
             (with-current-buffer b
@@ -233,10 +236,10 @@
       ;;         (delete-window follower-window)))))
       )))
 
-;; (add-hook 'window-buffer-change-functions #'pb--sync-window)
+(add-hook 'window-buffer-change-functions #'pb--sync-window)
 ;; (remove-hook 'window-buffer-change-functions #'pb--sync-window)
 
-;; (add-hook 'kill-buffer-hook #'pb-unpair-buffers)
+(add-hook 'kill-buffer-hook #'pb-unpair-buffers)
 ;; (remove-hook 'kill-buffer-hook #'pb-unpair-buffers)
 
 (defun pb-mode-line()
@@ -245,16 +248,11 @@
       (when (pb--main-buffer? (current-buffer))
         (setq line " [M]"))
       (when (pb--follower-buffer? (current-buffer))
-        (setq line " [F]")))
+        (setq line (format " [F:%d]" (length main-buffers)))))
     line))
 
 (defvar mode-line-pb-info '(:eval (format "%s" (pb-mode-line))))
 (put 'mode-line-pb-info 'risky-local-variable t)
-
-(defun pb-add-pb-info-to-mode-line()
-  (add-to-list 'mode-line-format 'mode-line-pb-info t)
-  )
-;; (add-hook 'find-file-hook #'pb-add-pb-info-to-mode-line)
 
 (provide 'pb)
 
