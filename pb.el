@@ -69,6 +69,9 @@
     (when (or (minibufferp main) (minibufferp follower))
       (user-error (format "minibuffer should not be paired")))
     
+    (when (equal main follower)
+      (user-error (format "main and follower should not be the same.")))
+
     (setq layout (read-string "Layout(v for vertical and h for horizontal): " "v"))
 
     (setq ratio (read-string "Ratio of follower buffer: " "0.5"))
