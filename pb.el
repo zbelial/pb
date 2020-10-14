@@ -44,26 +44,31 @@
   "Non-nil if this is a secondary buffer.")
 
 (defvar-local main-buffer-name nil
-  "The first buffer name.")
+  "The main buffer name.")
 
 (defvar-local follower-buffer-name nil
-  "The secondary buffer name.")
+  "The follower buffer name.")
 
 (defvar-local window-layout nil
-  "How to display the paird buffers, `vertical' or `horizontal'")
+  "How to display the paird buffers, v for vertical or h for horizontal")
 
 (defvar-local follower-buffer-ratio 0.5
-  "The proportion of the second buffer's height or width.")
+  "The proportion of the follower buffer's height or width.")
+
+(defvar-local main-buffers nil
+  "The main buffers a follower buffer attached to.")
+
+(defvar pb--sync-window-enabled t)
 
 (defun pb-pair-buffers ()
   "Pair two buffers together."
   (interactive)
   (let* ((window (get-buffer-window (current-buffer)))
          (main (read-buffer "Main buffer: "))
-         (follower (read-buffer "Follower buffer: "))
+         (follower (read-buffer "Follower buffer: " nil nil #'(lambda (buffer) (not (equal buffer main)))))
          w2 layout ratio wsize)
 
-    (when (or (pb-paired-buffer? main) (pb-paired-buffer? follower))
+    (when (or (pb--main-buffer? main) (pb--main-buffer? follower))
       (user-error (format "%s or %s has been paired" main follower)))
 
     (when (or (minibufferp main) (minibufferp follower))
@@ -100,6 +105,7 @@
     (with-current-buffer follower
       (setq mainp nil)
       (setq followerp t)
+      (add-to-list 'main-buffers main)
       (setq main-buffer-name main)
       (setq follower-buffer-name follower)
       (setq window-layout layout)
@@ -111,116 +117,144 @@
 (defun pb-unpair-buffers (&optional buffer)
   ""
   (interactive)
+  ;; (message "pb-unpair-buffers %S" buffer)
   (let ((buffer (or buffer (buffer-name)))
-        main follower)
-    (when (pb-paired-buffer? buffer)
-      (setq main (pb-main-buffer buffer))
-      (setq follower (pb-follower-buffer buffer))
-      (with-current-buffer main
-        (setq mainp nil)
-        (setq followerp nil)
-        )
-      (with-current-buffer follower
-        (setq mainp nil)
-        (setq followerp nil)))))
+        main follower mains)
+    (setq pb--sync-window-enabled nil)
+    (ignore-errors
+      (when (pb--main-buffer? buffer)
+        (setq main buffer)
+        (setq follower (pb--follower-buffer buffer))
+        (with-current-buffer main
+          (setq mainp nil)
+          (setq followerp nil)
+          )
+        (with-current-buffer follower
+          (setq mainp nil)
+          (setq followerp nil)))
+      (when (pb--follower-buffer? buffer)
+        (dolist (b (buffer-list))
+            (with-current-buffer b
+              (when (and mainp (equal follower-buffer-name buffer))
+                (setq mainp nil)
+                (setq followerp nil))))))
+    (setq pb--sync-window-enabled t)))
 
-(defun pb-change-ratio (&optional buffer)
+(defun pb-change-ratio ()
   (interactive)
-  (let ((buffer (or buffer (buffer-name)))
+  (let ((buffer (buffer-name))
         main follower ratio)
-    (when (pb-paired-buffer? buffer)
-      (setq ratio (read-string "New ratio of follower buffer: " (number-to-string (pb-follower-ratio))))
-      (setq ratio (string-to-number ratio))
-      (when (or (< ratio 0.0) (>= ratio 1.0))
-        (setq ratio 0.5))
+    (if (pb--main-buffer? buffer)
+        (progn
+          (setq ratio (read-string "New ratio of follower buffer: " (number-to-string (pb--follower-ratio buffer))))
+          (setq ratio (string-to-number ratio))
+          (when (or (< ratio 0.0) (>= ratio 1.0))
+            (setq ratio 0.5))
 
-      (setq main (pb-main-buffer buffer))
-      (setq follower (pb-follower-buffer buffer))
-      (with-current-buffer main
-        (setq follower-buffer-ratio ratio)
-        )
-      (with-current-buffer follower
-        (setq follower-buffer-ratio ratio))
+          (with-current-buffer buffer
+            (setq follower-buffer-ratio ratio)
+            )
+          (pb--sync-window))
+      (user-error "Current buffer is not a main buffer."))))
 
-      (pb-sync-window)
-      )))
-
-(defun pb-paired-buffer? (&optional buffer)
+(defun pb--paired-buffer? (&optional buffer)
   ""
   (let ((buffer (or buffer (buffer-name))))
-    (or mainp followerp)))
+    (with-current-buffer buffer
+      (or mainp followerp))))
 
+(defun pb--main-buffer? (buffer)
+  (with-current-buffer buffer
+    mainp))
 
-(defun pb-main-buffer (&optional buffer)
-  ""
-  (when (pb-paired-buffer? buffer)
-    (if mainp
-        (buffer-name)
-      main-buffer-name)))
+(defun pb--follower-buffer? (buffer)
+  (with-current-buffer buffer
+    followerp))
 
-(defun pb-follower-buffer (&optional buffer)
-  ""
-  (when (pb-paired-buffer? buffer)
-    (if followerp
-        (buffer-name)
-      follower-buffer-name)))
+(defun pb--main-buffer (buffer)
+  "`buffer' must be a follower buffer."
+  (with-current-buffer buffer
+    (nth 0 main-buffers)))
 
-(defun pb-follower-ratio (&optional buffer)
-  ""
-  (when (pb-paired-buffer? buffer)
-    follower-buffer-ratio
-    ))
+(defun pb--follower-buffer (buffer)
+  "`buffer' must be a main buffer."
+  (with-current-buffer buffer
+    follower-buffer-name))
 
-(defun pb-sync-window (&optional arg)
+(defun pb--follower-ratio (buffer)
+  "`buffer' must be a main buffer."
+  follower-buffer-ratio
+  )
+
+(defun pb--sync-window (&optional arg)
   ""
   (let* (
-        (buffer (current-buffer))
-        (window (get-buffer-window buffer))
-        main-buffer follower-buffer w2 layout)
-    (when (and t (pb-paired-buffer? buffer))
-      (setq main-buffer (pb-main-buffer))
-      (setq follower-buffer (pb-follower-buffer))
-      (setq layout window-layout)
-      (setq ratio follower-buffer-ratio)
+         (buffer (current-buffer))
+         (window (get-buffer-window buffer))
+         main-buffer follower-buffer w2 layout)
+    (when pb--sync-window-enabled
+      (when (and t (pb--main-buffer? buffer))
+        (setq main-buffer buffer)
+        (setq follower-buffer (pb--follower-buffer main-buffer))
+        (setq layout window-layout)
+        (setq ratio follower-buffer-ratio)
 
-      (dolist (w (window-list))
-        (when (not (or (string-equal (buffer-name (window-buffer w)) "*Help*")
-                       (minibufferp (window-buffer w))
-                       (window-dedicated-p w)
-                       (eq w window)))
-          (delete-window w)))
-      
-      (if (string-equal layout "v")
-          (setq w2 (split-window window (* (- 1 ratio) (window-body-height window t)) 'below t))
-        (setq w2 (split-window window (* (- 1 ratio) (window-body-width window t)) 'right t)))
-
-      (set-window-buffer window main-buffer)
-      (set-window-buffer w2 follower-buffer)
-      (if (eq (window-buffer window) buffer)
-          (select-window window)
-        (select-window w2)))
-
-    (when (and t
-               (not (pb-paired-buffer? buffer))
-               )
-      (let (main-window follower-window)
         (dolist (w (window-list))
-          (with-current-buffer (window-buffer w)
-            (when mainp
-              (setq main-window w))
-            (when followerp
-              (setq follower-window w))))
-        (when (not (and main-window follower-window))
-          (when main-window
-            (delete-window main-window))
-          (when follower-window
-            (delete-window follower-window)))))))
+          (when (not (or (string-equal (buffer-name (window-buffer w)) "*Help*")
+                         (minibufferp (window-buffer w))
+                         (window-dedicated-p w)
+                         (eq w window)))
+            (delete-window w)))
+        
+        (if (string-equal layout "v")
+            (setq w2 (split-window window (* (- 1 ratio) (window-body-height window t)) 'below t))
+          (setq w2 (split-window window (* (- 1 ratio) (window-body-width window t)) 'right t)))
 
-(add-hook 'window-buffer-change-functions #'pb-sync-window)
-;; (remove-hook 'window-buffer-change-functions #'pb-sync-window)
+        (set-window-buffer window main-buffer)
+        (set-window-buffer w2 follower-buffer)
+        (if (eq (window-buffer window) buffer)
+            (select-window window)
+          (select-window w2)))
 
-(add-hook 'kill-buffer-hook #'pb-unpair-buffers)
+      ;; (when (and t
+      ;;            (not (pb--paired-buffer? buffer))
+      ;;            )
+      ;;   (let (main-window follower-window)
+      ;;     (dolist (w (window-list))
+      ;;       (with-current-buffer (window-buffer w)
+      ;;         (when mainp
+      ;;           (setq main-window w))
+      ;;         (when followerp
+      ;;           (setq follower-window w))))
+      ;;     (when (not (and main-window follower-window))
+      ;;       (when main-window
+      ;;         (delete-window main-window))
+      ;;       (when follower-window
+      ;;         (delete-window follower-window)))))
+      )))
+
+;; (add-hook 'window-buffer-change-functions #'pb--sync-window)
+;; (remove-hook 'window-buffer-change-functions #'pb--sync-window)
+
+;; (add-hook 'kill-buffer-hook #'pb-unpair-buffers)
 ;; (remove-hook 'kill-buffer-hook #'pb-unpair-buffers)
+
+(defun pb-mode-line()
+  (let ((line ""))
+    (with-current-buffer (current-buffer)
+      (when (pb--main-buffer? (current-buffer))
+        (setq line " [M]"))
+      (when (pb--follower-buffer? (current-buffer))
+        (setq line " [F]")))
+    line))
+
+(defvar mode-line-pb-info '(:eval (format "%s" (pb-mode-line))))
+(put 'mode-line-pb-info 'risky-local-variable t)
+
+(defun pb-add-pb-info-to-mode-line()
+  (add-to-list 'mode-line-format 'mode-line-pb-info t)
+  )
+;; (add-hook 'find-file-hook #'pb-add-pb-info-to-mode-line)
 
 (provide 'pb)
 
